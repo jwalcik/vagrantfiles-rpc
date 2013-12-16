@@ -1,0 +1,213 @@
+# -*- mode: ruby -*-
+
+# vi: set ft=ruby :
+
+VAGRANTFILE_API_VERSION = "2"
+
+$chefscript = <<CHEFSCRIPT
+# Set verbose
+set -v
+
+# Set exit on error
+set -e
+
+# Silly Ubuntu 12.04 doesn't have the
+# --stdin option in the passwd utility
+echo root:vagrant | chpasswd
+
+cat << EOF >> /etc/hosts
+192.168.236.10 chef
+192.168.236.11 controller1
+192.168.236.12 compute1
+EOF
+
+wget https://raw.github.com/rcbops/support-tools/master/chef-install/install-chef-server.sh -O /tmp/install-chef-server.sh
+
+chmod +x /tmp/install-chef-server.sh
+
+/tmp/install-chef-server.sh
+
+source /root/.bash_profile
+
+cd /root
+
+git clone https://github.com/rcbops/chef-cookbooks.git
+
+cd chef-cookbooks
+
+git checkout v4.1.2
+git submodule init
+git submodule sync
+git submodule update
+
+knife cookbook upload -a -o cookbooks
+
+knife role from file roles/*rb
+
+cat << EOF >> /tmp/rpcv412.json
+{
+    "name": "rpcv412",
+    "description": "Rackspace Private Cloud v4.1.2",
+    "cookbook_versions": {},
+    "json_class": "Chef::Environment",
+    "chef_type": "environment",
+    "default_attributes": {},
+    "override_attributes": {
+        "nova": {
+            "libvirt": {
+                "virt_type": "qemu"
+            },
+            "network": {
+                "provider": "nova",
+                "public_interface": "br-eth2"
+            },
+            "networks": {
+                "public": {
+                    "label": "public",
+                    "bridge_dev": "eth2",
+                    "bridge": "br-eth2",
+                    "ipv4_cidr": "192.168.205.0/24",
+                    "dns1": "8.8.4.4",
+                    "dns2": "8.8.8.8"
+                }
+            }
+        },
+        "mysql": {
+            "allow_remote_root": true,
+            "root_network_acl": "%"
+        },
+        "osops_networks": {
+            "nova": "192.168.236.0/24",
+            "public": "192.168.236.0/24",
+            "management": "192.168.236.0/24"
+        }
+    }
+}
+EOF
+
+knife environment from file /tmp/rpcv412.json
+
+ssh-keygen -t rsa -N "" -f /root/.ssh/id_rsa
+
+ssh-keyscan controller1 >> /root/.ssh/known_hosts
+ssh-keyscan 192.168.236.11 >> /root/.ssh/known_hosts
+
+ssh-keyscan compute1 >> /root/.ssh/known_hosts
+ssh-keyscan 192.168.236.12 >> /root/.ssh/known_hosts
+
+apt-get install -y expect
+
+expect<<EOF
+spawn ssh-copy-id controller1
+expect "root@controller1's password:"
+send "vagrant\n"
+expect eof
+EOF
+
+expect<<EOF
+spawn ssh-copy-id compute1
+expect "root@compute1's password:"
+send "vagrant\n"
+expect eof
+EOF
+
+knife bootstrap controller1 --environment rpcv412 --server-url https://chef:443 --run-list 'role[single-controller]'
+
+knife bootstrap compute1 --environment rpcv412 --server-url https://chef:443 --run-list 'role[single-compute]'
+CHEFSCRIPT
+
+$commonscript = <<COMMONSCRIPT
+# Set verbose
+set -v
+
+# Set exit on error
+set -e
+
+# Silly Ubuntu 12.04 doesn't have the
+# --stdin option in the passwd utility
+echo root:vagrant | chpasswd
+
+cat << EOF >> /etc/hosts
+192.168.236.10 chef
+192.168.236.11 controller1
+192.168.236.12 compute1
+EOF
+COMMONSCRIPT
+
+Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
+
+  config.vm.box = "ubuntu-server-12.04.3-lts-x86_64"
+
+  # Turn off shared folders
+  config.vm.synced_folder ".", "/vagrant", id: "vagrant-root", disabled: true
+
+  # Begin controller1
+  config.vm.define "controller1" do |controller1_config|
+    controller1_config.vm.hostname = "controller1"
+
+    controller1_config.vm.provision "shell", inline: $commonscript
+
+    # eth1 configured in the 192.168.236.0/24 network
+    controller1_config.vm.network "private_network", ip: "192.168.236.11"
+
+    controller1_config.vm.provider "vmware_fusion" do |v|
+        v.vmx["memsize"] = "2048"
+        v.vmx["numvcpus"] = "2"
+    end
+
+    controller1_config.vm.provider "virtualbox" do |v|
+        v.customize ["modifyvm", :id, "--memory", "2048"]
+        v.customize ["modifyvm", :id, "--cpus", "2"]
+    end
+  end
+  # End controller1
+
+  # Begin compute1
+  config.vm.define "compute1" do |compute1_config|
+    compute1_config.vm.hostname = "compute1"
+
+    compute1_config.vm.provision "shell", inline: $commonscript
+
+    # eth1 configured in the 192.168.236.0/24 network
+    compute1_config.vm.network "private_network", ip: "192.168.236.12"
+
+    compute1_config.vm.provider "vmware_fusion" do |v|
+        v.vmx["memsize"] = "2048"
+        v.vmx["numvcpus"] = "2"
+        # eth2 left unconfigured so the Chef Cookbooks can configure it
+        v.vmx["ethernet2.present"] = "TRUE"
+        v.vmx["ethernet2.connectionType"] = "hostonly"
+        v.vmx["ethernet2.addressType"] = "generated"
+        v.vmx["ethernet2.virtualDev"] = "e1000"
+    end
+
+    compute1_config.vm.provider "virtualbox" do |v|
+        v.customize ["modifyvm", :id, "--memory", "2048"]
+        v.customize ["modifyvm", :id, "--cpus", "2"]
+        # eth2 left unconfigured so the Chef Cookbooks can configure it
+        v.customize ["modifyvm", :id, "--nic3", "intnet"]
+    end
+  end
+  # End compute1
+
+  # Begin chef
+  config.vm.define "chef" do |chef_config|
+    chef_config.vm.hostname = "chef"
+
+    chef_config.vm.provision "shell", inline: $chefscript
+
+    # eth1 configured in the 192.168.236.0/24 network
+    chef_config.vm.network "private_network", ip: "192.168.236.10"
+
+    chef_config.vm.provider "vmware_fusion" do |v|
+        v.vmx["memsize"] = "512"
+        v.vmx["numvcpus"] = "1"
+    end
+
+    chef_config.vm.provider "virtualbox" do |v|
+        v.customize ["modifyvm", :id, "--memory", "512"]
+        v.customize ["modifyvm", :id, "--cpus", "1"]
+    end
+  end
+  # End chef
+end
