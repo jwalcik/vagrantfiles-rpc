@@ -4,6 +4,25 @@
 
 VAGRANTFILE_API_VERSION = "2"
 
+$commonscript = <<COMMONSCRIPT
+
+# Set verbose
+set -v
+
+# Set exit on error
+set -e
+
+# Silly Ubuntu 12.04 doesn't have the
+# --stdin option in the passwd utility
+echo root:vagrant | chpasswd
+
+cat << EOF >> /etc/hosts
+192.168.236.10 chef
+192.168.236.11 controller1
+192.168.236.12 compute1
+EOF
+COMMONSCRIPT
+
 $chefscript = <<CHEFSCRIPT
 # Set verbose
 set -v
@@ -114,25 +133,9 @@ EOF
 knife bootstrap controller1 --environment rpcv412 --server-url https://chef:443 --run-list 'role[single-controller]'
 
 knife bootstrap compute1 --environment rpcv412 --server-url https://chef:443 --run-list 'role[single-compute]'
+
+echo "All done!"
 CHEFSCRIPT
-
-$commonscript = <<COMMONSCRIPT
-# Set verbose
-set -v
-
-# Set exit on error
-set -e
-
-# Silly Ubuntu 12.04 doesn't have the
-# --stdin option in the passwd utility
-echo root:vagrant | chpasswd
-
-cat << EOF >> /etc/hosts
-192.168.236.10 chef
-192.168.236.11 controller1
-192.168.236.12 compute1
-EOF
-COMMONSCRIPT
 
 Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
 

@@ -4,6 +4,25 @@
 
 VAGRANTFILE_API_VERSION = "2"
 
+$commonscript = <<COMMONSCRIPT
+# Set verbose
+set -v
+
+# Set exit on error
+set -e
+
+# Silly Ubuntu 12.04 doesn't have the
+# --stdin option in the passwd utility
+echo root:vagrant | chpasswd
+
+cat << EOF >> /etc/hosts
+192.168.236.10 chef
+192.168.236.11 controller1
+192.168.236.12 network1
+192.168.236.13 compute1
+EOF
+COMMONSCRIPT
+
 $chefscript = <<CHEFSCRIPT
 # Set verbose
 set -v
@@ -163,26 +182,9 @@ EOF
 '"
 
 ssh compute1 "sed -i '/^exit 0$/i ifup br-eth2' /etc/rc.local"
+
+echo "All done!"
 CHEFSCRIPT
-
-$commonscript = <<COMMONSCRIPT
-# Set verbose
-set -v
-
-# Set exit on error
-set -e
-
-# Silly Ubuntu 12.04 doesn't have the
-# --stdin option in the passwd utility
-echo root:vagrant | chpasswd
-
-cat << EOF >> /etc/hosts
-192.168.236.10 chef
-192.168.236.11 controller1
-192.168.236.12 network1
-192.168.236.13 compute1
-EOF
-COMMONSCRIPT
 
 Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
 
