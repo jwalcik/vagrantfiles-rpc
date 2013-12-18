@@ -47,8 +47,6 @@ chmod +x /tmp/install-chef-server.sh
 
 /tmp/install-chef-server.sh
 
-source /root/.bash_profile
-
 cd /root
 
 git clone https://github.com/rcbops/chef-cookbooks.git
