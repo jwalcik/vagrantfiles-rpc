@@ -127,9 +127,9 @@ send "vagrant\n"
 expect eof
 EOF
 
-knife bootstrap controller1 --environment rpcv412 --server-url https://chef:443 --run-list 'role[single-controller]'
+knife bootstrap controller1 --environment rpcv412 --server-url https://chef:443 --run-list 'role[single-controller]' || while ! knife ssh "name:controller1" "chef-client"; do echo "chef-client failed, retrying"; sleep 5; done
 
-knife bootstrap compute1 --environment rpcv412 --server-url https://chef:443 --run-list 'role[single-compute]'
+knife bootstrap compute1 --environment rpcv412 --server-url https://chef:443 --run-list 'role[single-compute]' || while ! knife ssh "name:compute1" "chef-client"; do echo "chef-client failed, retrying"; sleep 5; done
 
 echo "All done!"
 CHEFSCRIPT
