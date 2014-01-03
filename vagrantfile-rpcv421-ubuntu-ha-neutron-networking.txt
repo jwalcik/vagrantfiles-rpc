@@ -176,13 +176,13 @@ send "vagrant\n"
 expect eof
 EOF
 
-knife bootstrap controller1 --environment rpcv421 --server-url https://chef:443 --run-list 'role[ha-controller1],role[single-network-node]'
+knife bootstrap controller1 --environment rpcv421 --server-url https://chef:443 --run-list 'role[ha-controller1],role[single-network-node]' || sleep 10 && knife ssh "name:controller1" "chef-client"
 
-knife bootstrap controller2 --environment rpcv421 --server-url https://chef:443 --run-list 'role[ha-controller2],role[single-network-node]'
+knife bootstrap controller2 --environment rpcv421 --server-url https://chef:443 --run-list 'role[ha-controller2],role[single-network-node]' || sleep 10 && knife ssh "name:controller2" "chef-client"
 
 knife ssh "name:controller1" "chef-client"
 
-knife bootstrap compute1 --environment rpcv421 --server-url https://chef:443 --run-list 'role[single-compute]'
+knife bootstrap compute1 --environment rpcv421 --server-url https://chef:443 --run-list 'role[single-compute]' || sleep 10 && knife ssh "name:compute1" "chef-client"
 
 #
 # controller1 node post chef-client setup
