@@ -18,8 +18,7 @@ echo root:vagrant | chpasswd
 cat << EOF >> /etc/hosts
 192.168.236.10 chef
 192.168.236.11 controller1
-192.168.236.12 network1
-192.168.236.13 compute1
+192.168.236.12 compute1
 EOF
 COMMONSCRIPT
 
@@ -37,8 +36,7 @@ echo root:vagrant | chpasswd
 cat << EOF >> /etc/hosts
 192.168.236.10 chef
 192.168.236.11 controller1
-192.168.236.12 network1
-192.168.236.13 compute1
+192.168.236.12 compute1
 EOF
 
 wget https://raw.github.com/rcbops/support-tools/master/chef-install/install-chef-server.sh -O /tmp/install-chef-server.sh
@@ -110,11 +108,8 @@ ssh-keygen -t rsa -N "" -f /root/.ssh/id_rsa
 ssh-keyscan controller1 >> /root/.ssh/known_hosts
 ssh-keyscan 192.168.236.11 >> /root/.ssh/known_hosts
 
-ssh-keyscan network1 >> /root/.ssh/known_hosts
-ssh-keyscan 192.168.236.12 >> /root/.ssh/known_hosts
-
 ssh-keyscan compute1 >> /root/.ssh/known_hosts
-ssh-keyscan 192.168.236.13 >> /root/.ssh/known_hosts
+ssh-keyscan 192.168.236.12 >> /root/.ssh/known_hosts
 
 apt-get install -y expect
 
@@ -126,31 +121,22 @@ expect eof
 EOF
 
 expect<<EOF
-spawn ssh-copy-id network1
-expect "root@network1's password:"
-send "vagrant\n"
-expect eof
-EOF
-
-expect<<EOF
 spawn ssh-copy-id compute1
 expect "root@compute1's password:"
 send "vagrant\n"
 expect eof
 EOF
 
-knife bootstrap controller1 --environment rpcv421 --server-url https://chef:443 --run-list 'role[single-controller]' || while ! knife ssh "name:controller1" "chef-client"; do echo "chef-client failed, retrying"; sleep 5; done
-
-knife bootstrap network1 --environment rpcv421 --server-url https://chef:443 --run-list 'role[single-network-node]' || while ! knife ssh "name:network1" "chef-client"; do echo "chef-client failed, retryin"; sleep 5; done
+knife bootstrap controller1 --environment rpcv421 --server-url https://chef:443 --run-list 'role[single-controller],role[single-network-node]' || while ! knife ssh "name:controller1" "chef-client"; do echo "chef-client failed, retrying"; sleep 5; done
 
 knife bootstrap compute1 --environment rpcv421 --server-url https://chef:443 --run-list 'role[single-compute]' || while ! knife ssh "name:compute1" "chef-client"; do echo "chef-client failed, retrying"; sleep 5; done
 
 #
-# network1 node post chef-client setup
+# controller1 node post chef-client setup
 #
-ssh network1 ovs-vsctl add-port br-eth2 eth2
+ssh controller1 ovs-vsctl add-port br-eth2 eth2
 
-ssh network1 bash -c "'
+ssh controller1 bash -c "'
 cat << 'EOF' >> /etc/network/interfaces
 auto eth2
 iface eth2 inet manual
@@ -161,7 +147,7 @@ iface br-eth2 inet manual
 EOF
 '"
 
-ssh network1 "sed -i '/^exit 0$/i ifup br-eth2' /etc/rc.local"
+ssh controller1 "sed -i '/^exit 0$/i ifup br-eth2' /etc/rc.local"
 
 #
 # compute1 node post chef-client setup
@@ -201,27 +187,6 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
     controller1_config.vm.network "private_network", ip: "192.168.236.11"
 
     controller1_config.vm.provider "vmware_fusion" do |v|
-        v.vmx["memsize"] = "2048"
-        v.vmx["numvcpus"] = "2"
-    end
-
-    controller1_config.vm.provider "virtualbox" do |v|
-        v.customize ["modifyvm", :id, "--memory", "2048"]
-        v.customize ["modifyvm", :id, "--cpus", "2"]
-    end
-  end
-  # End controller1
-
-  # Begin network1
-  config.vm.define "network1" do |network1_config|
-    network1_config.vm.hostname = "network1"
-
-    network1_config.vm.provision "shell", inline: $commonscript
-
-    # eth1 configured in the 192.168.236.0/24 network
-    network1_config.vm.network "private_network", ip: "192.168.236.12"
-
-    network1_config.vm.provider "vmware_fusion" do |v|
         v.vmx["memsize"] = "1024"
         v.vmx["numvcpus"] = "1"
         # eth2 left unconfigured so the Chef Cookbooks can configure it
@@ -231,14 +196,14 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
         v.vmx["ethernet2.virtualDev"] = "e1000"
     end
 
-    network1_config.vm.provider "virtualbox" do |v|
+    controller1_config.vm.provider "virtualbox" do |v|
         v.customize ["modifyvm", :id, "--memory", "2048"]
         v.customize ["modifyvm", :id, "--cpus", "2"]
         # eth2 left unconfigured so the Chef Cookbooks can configure it
         v.customize ["modifyvm", :id, "--nic3", "intnet"]
     end
   end
-  # End network1
+  # End controller1
 
   # Begin compute1
   config.vm.define "compute1" do |compute1_config|
@@ -247,7 +212,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
     compute1_config.vm.provision "shell", inline: $commonscript
 
     # eth1 configured in the 192.168.236.0/24 network
-    compute1_config.vm.network "private_network", ip: "192.168.236.13"
+    compute1_config.vm.network "private_network", ip: "192.168.236.12"
 
     compute1_config.vm.provider "vmware_fusion" do |v|
         v.vmx["memsize"] = "2048"
