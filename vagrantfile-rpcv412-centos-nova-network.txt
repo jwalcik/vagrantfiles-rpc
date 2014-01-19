@@ -43,6 +43,8 @@ wget https://raw.github.com/rcbops/support-tools/master/chef-install/install-che
 
 chmod +x /tmp/install-chef-server.sh
 
+export CHEF_URL="https://chef:443"
+
 /tmp/install-chef-server.sh
 
 cd /root
@@ -127,9 +129,9 @@ send "vagrant\n"
 expect eof
 EOF
 
-knife bootstrap controller1 --environment rpcv412 --server-url https://chef:443 --run-list 'role[single-controller]' || while ! knife ssh "name:controller1" "chef-client"; do echo "chef-client failed, retrying"; sleep 5; done
+knife bootstrap controller1 --environment rpcv412 --run-list 'role[single-controller]' || while ! knife ssh "name:controller1" "chef-client"; do echo "chef-client failed, retrying"; sleep 5; done
 
-knife bootstrap compute1 --environment rpcv412 --server-url https://chef:443 --run-list 'role[single-compute]' || while ! knife ssh "name:compute1" "chef-client"; do echo "chef-client failed, retrying"; sleep 5; done
+knife bootstrap compute1 --environment rpcv412 --run-list 'role[single-compute]' || while ! knife ssh "name:compute1" "chef-client"; do echo "chef-client failed, retrying"; sleep 5; done
 
 echo "All done!"
 CHEFSCRIPT

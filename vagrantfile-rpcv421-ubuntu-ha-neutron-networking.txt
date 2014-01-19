@@ -45,6 +45,8 @@ wget https://raw.github.com/rcbops/support-tools/master/chef-install/install-che
 
 chmod +x /tmp/install-chef-server.sh
 
+export CHEF_URL="https://chef:443"
+
 /tmp/install-chef-server.sh
 
 cd /root
@@ -176,13 +178,13 @@ send "vagrant\n"
 expect eof
 EOF
 
-knife bootstrap controller1 --environment rpcv421 --server-url https://chef:443 --run-list 'role[ha-controller1],role[single-network-node]' || while ! knife ssh "name:controller1" "chef-client"; do echo "chef-client failed, retrying"; sleep 5; done
+knife bootstrap controller1 --environment rpcv421 --run-list 'role[ha-controller1],role[single-network-node]' || while ! knife ssh "name:controller1" "chef-client"; do echo "chef-client failed, retrying"; sleep 5; done
 
-knife bootstrap controller2 --environment rpcv421 --server-url https://chef:443 --run-list 'role[ha-controller2],role[single-network-node]' || while ! knife ssh "name:controller2" "chef-client"; do echo "chef-client failed, retrying"; sleep 5; done
+knife bootstrap controller2 --environment rpcv421 --run-list 'role[ha-controller2],role[single-network-node]' || while ! knife ssh "name:controller2" "chef-client"; do echo "chef-client failed, retrying"; sleep 5; done
 
 knife ssh "name:controller1" "chef-client"
 
-knife bootstrap compute1 --environment rpcv421 --server-url https://chef:443 --run-list 'role[single-compute]' || while ! knife ssh "name:compute1" "chef-client"; do echo "chef-client failed, retrying"; sleep 5; done
+knife bootstrap compute1 --environment rpcv421 --run-list 'role[single-compute]' || while ! knife ssh "name:compute1" "chef-client"; do echo "chef-client failed, retrying"; sleep 5; done
 
 #
 # controller1 node post chef-client setup
