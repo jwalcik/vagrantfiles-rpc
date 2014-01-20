@@ -270,8 +270,8 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
     end
 
     controller1_config.vm.provider "virtualbox" do |v|
-        v.customize ["modifyvm", :id, "--memory", "2048"]
-        v.customize ["modifyvm", :id, "--cpus", "2"]
+        v.customize ["modifyvm", :id, "--memory", "1536"]
+        v.customize ["modifyvm", :id, "--cpus", "1"]
         # eth2 left unconfigured so the Chef Cookbooks can configure it
         v.customize ["modifyvm", :id, "--nic3", "intnet"]
     end
@@ -298,8 +298,8 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
     end
 
     controller2_config.vm.provider "virtualbox" do |v|
-        v.customize ["modifyvm", :id, "--memory", "2048"]
-        v.customize ["modifyvm", :id, "--cpus", "2"]
+        v.customize ["modifyvm", :id, "--memory", "1536"]
+        v.customize ["modifyvm", :id, "--cpus", "1"]
         # eth2 left unconfigured so the Chef Cookbooks can configure it
         v.customize ["modifyvm", :id, "--nic3", "intnet"]
     end
@@ -349,7 +349,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
     end
 
     chef_config.vm.provider "virtualbox" do |v|
-        v.customize ["modifyvm", :id, "--memory", "512"]
+        v.customize ["modifyvm", :id, "--memory", "1024"]
         v.customize ["modifyvm", :id, "--cpus", "1"]
     end
   end
