@@ -62,7 +62,7 @@ knife cookbook upload -a -o cookbooks
 
 knife role from file roles/*rb
 
-cat << EOF >> /tmp/rpcv412.json
+cat << EOF >> /tmp/rpcv421.json
 {
     "name": "rpcv421",
     "description": "Rackspace Private Cloud v4.2.1",
@@ -113,7 +113,7 @@ ssh-keyscan 192.168.236.11 >> /root/.ssh/known_hosts
 ssh-keyscan compute1 >> /root/.ssh/known_hosts
 ssh-keyscan 192.168.236.12 >> /root/.ssh/known_hosts
 
-apt-get install -y expect
+yum install -y expect
 
 expect<<EOF
 spawn ssh-copy-id controller1
