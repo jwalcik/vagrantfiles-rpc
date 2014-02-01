@@ -75,7 +75,8 @@ cat << EOF >> /tmp/rpcv421.json
     "override_attributes": {
         "nova": {
             "libvirt": {
-                "virt_type": "qemu"
+                "virt_type": "qemu",
+                "vncserver_listen": "0.0.0.0"
             },
             "network": {
                 "provider": "neutron"
@@ -85,11 +86,12 @@ cat << EOF >> /tmp/rpcv421.json
             "ovs": {
                 "provider_networks": [
                     {
-                        "label": "ph-eth2",
-                        "bridge": "br-eth2"
+                        "label": "ph-eth1",
+                        "bridge": "br-eth1"
                     }
                 ],
-                "network_type": "gre"
+                "network_type": "gre",
+                "network": "neutron"
             }
         },
         "mysql": {
@@ -99,7 +101,8 @@ cat << EOF >> /tmp/rpcv421.json
         "osops_networks": {
             "nova": "192.168.236.0/24",
             "public": "192.168.236.0/24",
-            "management": "192.168.236.0/24"
+            "management": "192.168.236.0/24",
+            "neutron": "192.168.240.0/24"
         },
         "vips": {
             "rabbitmq-queue": "192.168.236.50",
@@ -186,60 +189,6 @@ knife ssh "name:controller1" "chef-client"
 
 knife bootstrap compute1 --environment rpcv421 --run-list 'role[single-compute]' || while ! knife ssh "name:compute1" "chef-client"; do echo "chef-client failed, retrying"; sleep 5; done
 
-#
-# controller1 node post chef-client setup
-#
-ssh controller1 ovs-vsctl add-port br-eth2 eth2
-
-ssh controller1 bash -c "'
-cat << 'EOF' >> /etc/network/interfaces
-auto eth2
-iface eth2 inet manual
-    up ip link set eth2 up
-    down ip link set eth2 down
-
-iface br-eth2 inet manual
-EOF
-'"
-
-ssh controller1 "sed -i '/^exit 0$/i ifup br-eth2' /etc/rc.local"
-
-#
-# controller2 node post chef-client setup
-#
-ssh controller2 ovs-vsctl add-port br-eth2 eth2
-
-ssh controller2 bash -c "'
-cat << 'EOF' >> /etc/network/interfaces
-auto eth2
-iface eth2 inet manual
-    up ip link set eth2 up
-    down ip link set eth2 down
-
-iface br-eth2 inet manual
-EOF
-'"
-
-ssh controller2 "sed -i '/^exit 0$/i ifup br-eth2' /etc/rc.local"
-
-#
-# compute1 node post chef-client setup
-#
-ssh compute1 ovs-vsctl add-port br-eth2 eth2
-
-ssh compute1 bash -c "'
-cat << 'EOF' >> /etc/network/interfaces
-auto eth2
-iface eth2 inet manual
-    up ip link set eth2 up
-    down ip link set eth2 down
-
-iface br-eth2 inet manual
-EOF
-'"
-
-ssh compute1 "sed -i '/^exit 0$/i ifup br-eth2' /etc/rc.local"
-
 echo "All done!"
 CHEFSCRIPT
 
@@ -256,24 +205,19 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
 
     controller1_config.vm.provision "shell", inline: $commonscript
 
-    # eth1 configured in the 192.168.236.0/24 network
+    # eth1
     controller1_config.vm.network "private_network", ip: "192.168.236.11"
+    # eth2
+    controller1_config.vm.network "private_network", ip: "192.168.240.11"
 
     controller1_config.vm.provider "vmware_fusion" do |v|
         v.vmx["memsize"] = "1536"
         v.vmx["numvcpus"] = "1"
-        # eth2 left unconfigured so the Chef Cookbooks can configure it
-        v.vmx["ethernet2.present"] = "TRUE"
-        v.vmx["ethernet2.connectionType"] = "hostonly"
-        v.vmx["ethernet2.addressType"] = "generated"
-        v.vmx["ethernet2.virtualDev"] = "e1000"
     end
 
     controller1_config.vm.provider "virtualbox" do |v|
         v.customize ["modifyvm", :id, "--memory", "1536"]
         v.customize ["modifyvm", :id, "--cpus", "1"]
-        # eth2 left unconfigured so the Chef Cookbooks can configure it
-        v.customize ["modifyvm", :id, "--nic3", "intnet"]
     end
   end
   # End controller1
@@ -284,24 +228,19 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
 
     controller2_config.vm.provision "shell", inline: $commonscript
 
-    # eth1 configured in the 192.168.236.0/24 network
+    # eth1
     controller2_config.vm.network "private_network", ip: "192.168.236.12"
+    # eth2
+    controller2_config.vm.network "private_network", ip: "192.168.240.12"
 
     controller2_config.vm.provider "vmware_fusion" do |v|
         v.vmx["memsize"] = "1536"
         v.vmx["numvcpus"] = "1"
-        # eth2 left unconfigured so the Chef Cookbooks can configure it
-        v.vmx["ethernet2.present"] = "TRUE"
-        v.vmx["ethernet2.connectionType"] = "hostonly"
-        v.vmx["ethernet2.addressType"] = "generated"
-        v.vmx["ethernet2.virtualDev"] = "e1000"
     end
 
     controller2_config.vm.provider "virtualbox" do |v|
         v.customize ["modifyvm", :id, "--memory", "1536"]
         v.customize ["modifyvm", :id, "--cpus", "1"]
-        # eth2 left unconfigured so the Chef Cookbooks can configure it
-        v.customize ["modifyvm", :id, "--nic3", "intnet"]
     end
   end
   # End controller2
@@ -312,24 +251,19 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
 
     compute1_config.vm.provision "shell", inline: $commonscript
 
-    # eth1 configured in the 192.168.236.0/24 network
+    # eth1
     compute1_config.vm.network "private_network", ip: "192.168.236.13"
+    # eth2
+    compute1_config.vm.network "private_network", ip: "192.168.240.13"
 
     compute1_config.vm.provider "vmware_fusion" do |v|
         v.vmx["memsize"] = "2048"
         v.vmx["numvcpus"] = "2"
-        # eth2 left unconfigured so the Chef Cookbooks can configure it
-        v.vmx["ethernet2.present"] = "TRUE"
-        v.vmx["ethernet2.connectionType"] = "hostonly"
-        v.vmx["ethernet2.addressType"] = "generated"
-        v.vmx["ethernet2.virtualDev"] = "e1000"
     end
 
     compute1_config.vm.provider "virtualbox" do |v|
         v.customize ["modifyvm", :id, "--memory", "2048"]
         v.customize ["modifyvm", :id, "--cpus", "2"]
-        # eth2 left unconfigured so the Chef Cookbooks can configure it
-        v.customize ["modifyvm", :id, "--nic3", "intnet"]
     end
   end
   # End compute1
@@ -340,7 +274,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
 
     chef_config.vm.provision "shell", inline: $chefscript
 
-    # eth1 configured in the 192.168.236.0/24 network
+    # eth1
     chef_config.vm.network "private_network", ip: "192.168.236.10"
 
     chef_config.vm.provider "vmware_fusion" do |v|

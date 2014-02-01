@@ -73,7 +73,8 @@ cat << EOF >> /tmp/rpcv421.json
     "override_attributes": {
         "nova": {
             "libvirt": {
-                "virt_type": "qemu"
+                "virt_type": "qemu",
+                "vncserver_listen": "0.0.0.0"
             },
             "network": {
                 "provider": "neutron"

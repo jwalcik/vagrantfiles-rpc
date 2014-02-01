@@ -74,7 +74,8 @@ cat << EOF >> /tmp/rpcv412.json
     "override_attributes": {
         "nova": {
             "libvirt": {
-                "virt_type": "qemu"
+                "virt_type": "qemu",
+                "vncserver_listen": "0.0.0.0"
             },
             "network": {
                 "provider": "nova",
@@ -150,7 +151,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
 
     controller1_config.vm.provision "shell", inline: $commonscript
 
-    # eth1 configured in the 192.168.236.0/24 network
+    # eth1
     controller1_config.vm.network "private_network", ip: "192.168.236.11"
 
     controller1_config.vm.provider "vmware_fusion" do |v|
@@ -171,7 +172,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
 
     compute1_config.vm.provision "shell", inline: $commonscript
 
-    # eth1 configured in the 192.168.236.0/24 network
+    # eth1
     compute1_config.vm.network "private_network", ip: "192.168.236.12"
 
     compute1_config.vm.provider "vmware_fusion" do |v|
@@ -199,7 +200,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
 
     chef_config.vm.provision "shell", inline: $chefscript
 
-    # eth1 configured in the 192.168.236.0/24 network
+    # eth1
     chef_config.vm.network "private_network", ip: "192.168.236.10"
 
     chef_config.vm.provider "vmware_fusion" do |v|
