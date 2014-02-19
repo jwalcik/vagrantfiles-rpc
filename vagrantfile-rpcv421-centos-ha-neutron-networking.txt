@@ -86,8 +86,8 @@ cat << EOF >> /tmp/rpcv421.json
             "ovs": {
                 "provider_networks": [
                     {
-                        "label": "ph-eth1",
-                        "bridge": "br-eth1"
+                        "label": "ph-eth2",
+                        "bridge": "br-eth2"
                     }
                 ],
                 "network_type": "gre",
