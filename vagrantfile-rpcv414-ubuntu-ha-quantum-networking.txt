@@ -1,0 +1,285 @@
+# -*- mode: ruby -*-
+
+# vi: set ft=ruby :
+
+VAGRANTFILE_API_VERSION = "2"
+
+$commonscript = <<COMMONSCRIPT
+# Set verbose
+set -v
+
+# Set exit on error
+set -e
+
+# Silly Ubuntu 12.04 doesn't have the
+# --stdin option in the passwd utility
+echo root:vagrant | chpasswd
+
+cat << EOF >> /etc/hosts
+192.168.236.10 chef
+192.168.236.11 controller1
+192.168.236.12 controller2
+192.168.236.13 compute1
+EOF
+COMMONSCRIPT
+
+$chefscript = <<CHEFSCRIPT
+# Set verbose
+set -v
+
+# Set exit on error
+set -e
+
+# Silly Ubuntu 12.04 doesn't have the
+# --stdin option in the passwd utility
+echo root:vagrant | chpasswd
+
+cat << EOF >> /etc/hosts
+192.168.236.10 chef
+192.168.236.11 controller1
+192.168.236.12 controller2
+192.168.236.13 compute1
+EOF
+
+wget https://raw.github.com/rcbops/support-tools/master/chef-install/install-chef-server.sh -O /tmp/install-chef-server.sh
+
+chmod +x /tmp/install-chef-server.sh
+
+export CHEF_URL="https://chef:443"
+
+/tmp/install-chef-server.sh
+
+cd /root
+
+git clone https://github.com/rcbops/chef-cookbooks.git
+
+cd chef-cookbooks
+
+git checkout v4.1.4
+git submodule init
+git submodule sync
+git submodule update
+
+knife cookbook upload -a -o cookbooks
+
+knife role from file roles/*rb
+
+cat << EOF >> /tmp/rpcv414.json
+{
+    "name": "rpcv414",
+    "description": "Rackspace Private Cloud v4.1.4",
+    "cookbook_versions": {},
+    "json_class": "Chef::Environment",
+    "chef_type": "environment",
+    "default_attributes": {},
+    "override_attributes": {
+        "nova": {
+            "libvirt": {
+                "virt_type": "qemu",
+                "vncserver_listen": "0.0.0.0"
+            },
+            "network": {
+                "provider": "quantum"
+            }
+        },
+        "quantum": {
+            "ovs": {
+                "provider_networks": [
+                    {
+                        "label": "ph-eth2",
+                        "bridge": "br-eth2"
+                    }
+                ],
+                "network_type": "gre",
+                "network": "quantum"
+            }
+        },
+        "mysql": {
+            "allow_remote_root": true,
+            "root_network_acl": "%"
+        },
+        "osops_networks": {
+            "nova": "192.168.236.0/24",
+            "public": "192.168.236.0/24",
+            "management": "192.168.236.0/24",
+            "quantum": "192.168.240.0/24"
+        },
+        "vips": {
+            "rabbitmq-queue": "192.168.236.50",
+            "cinder-api": "192.168.236.51",
+            "glance-api": "192.168.236.51",
+            "glance-registry": "192.168.236.51",
+            "horizon-dash": "192.168.236.51",
+            "horizon-dash_ssl": "192.168.236.51",
+            "keystone-admin-api": "192.168.236.51",
+            "keystone-internal-api": "192.168.236.51",
+            "keystone-service-api": "192.168.236.51",
+            "nova-api": "192.168.236.51",
+            "nova-ec2-public": "192.168.236.51",
+            "nova-novnc-proxy": "192.168.236.51",
+            "nova-xvpvnc-proxy": "192.168.236.51",
+            "quantum-api": "192.168.236.51",
+            "mysql-db": "192.168.236.52",
+            "config": {
+                "192.168.236.50": {
+                    "vrid": 1,
+                    "network": "public"
+                },
+                "192.168.236.51": {
+                    "vrid": 2,
+                    "network": "public"
+                },
+                "192.168.236.52": {
+                    "vrid": 3,
+                    "network": "public"
+                }
+            }
+        }
+    }
+}
+EOF
+
+knife environment from file /tmp/rpcv414.json
+
+ssh-keygen -t rsa -N "" -f /root/.ssh/id_rsa
+
+ssh-keyscan controller1 >> /root/.ssh/known_hosts
+ssh-keyscan 192.168.236.11 >> /root/.ssh/known_hosts
+
+ssh-keyscan controller2 >> /root/.ssh/known_hosts
+ssh-keyscan 192.168.236.12 >> /root/.ssh/known_hosts
+
+ssh-keyscan compute1 >> /root/.ssh/known_hosts
+ssh-keyscan 192.168.236.13 >> /root/.ssh/known_hosts
+
+apt-get install -y expect
+
+expect<<EOF
+spawn ssh-copy-id controller1
+expect "root@controller1's password:"
+send "vagrant\n"
+expect eof
+EOF
+
+expect<<EOF
+spawn ssh-copy-id controller2
+expect "root@controller2's password:"
+send "vagrant\n"
+expect eof
+EOF
+
+expect<<EOF
+spawn ssh-copy-id compute1
+expect "root@compute1's password:"
+send "vagrant\n"
+expect eof
+EOF
+
+knife bootstrap controller1 --environment rpcv414 --run-list 'role[ha-controller1],role[single-network-node]' || while ! knife ssh "name:controller1" "chef-client"; do echo "chef-client failed, retrying"; sleep 5; done
+
+knife bootstrap controller2 --environment rpcv414 --run-list 'role[ha-controller2],role[single-network-node]' || while ! knife ssh "name:controller2" "chef-client"; do echo "chef-client failed, retrying"; sleep 5; done
+
+knife ssh "name:controller1" "chef-client"
+
+knife bootstrap compute1 --environment rpcv414 --run-list 'role[single-compute]' || while ! knife ssh "name:compute1" "chef-client"; do echo "chef-client failed, retrying"; sleep 5; done
+
+echo "All done!"
+CHEFSCRIPT
+
+Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
+
+  config.vm.box = "ubuntu-server-12.04.3-lts-x86_64"
+
+  # Turn off shared folders
+  config.vm.synced_folder ".", "/vagrant", id: "vagrant-root", disabled: true
+
+  # Begin controller1
+  config.vm.define "controller1" do |controller1_config|
+    controller1_config.vm.hostname = "controller1"
+
+    controller1_config.vm.provision "shell", inline: $commonscript
+
+    # eth1
+    controller1_config.vm.network "private_network", ip: "192.168.236.11"
+    # eth2
+    controller1_config.vm.network "private_network", ip: "192.168.240.11"
+
+    controller1_config.vm.provider "vmware_fusion" do |v|
+        v.vmx["memsize"] = "1536"
+        v.vmx["numvcpus"] = "1"
+    end
+
+    controller1_config.vm.provider "virtualbox" do |v|
+        v.customize ["modifyvm", :id, "--memory", "1536"]
+        v.customize ["modifyvm", :id, "--cpus", "1"]
+    end
+  end
+  # End controller1
+
+  # Begin controller2
+  config.vm.define "controller2" do |controller2_config|
+    controller2_config.vm.hostname = "controller2"
+
+    controller2_config.vm.provision "shell", inline: $commonscript
+
+    # eth1
+    controller2_config.vm.network "private_network", ip: "192.168.236.12"
+    # eth2
+    controller2_config.vm.network "private_network", ip: "192.168.240.12"
+
+    controller2_config.vm.provider "vmware_fusion" do |v|
+        v.vmx["memsize"] = "1536"
+        v.vmx["numvcpus"] = "1"
+    end
+
+    controller2_config.vm.provider "virtualbox" do |v|
+        v.customize ["modifyvm", :id, "--memory", "1536"]
+        v.customize ["modifyvm", :id, "--cpus", "1"]
+    end
+  end
+  # End controller2
+
+  # Begin compute1
+  config.vm.define "compute1" do |compute1_config|
+    compute1_config.vm.hostname = "compute1"
+
+    compute1_config.vm.provision "shell", inline: $commonscript
+
+    # eth1
+    compute1_config.vm.network "private_network", ip: "192.168.236.13"
+    # eth2
+    compute1_config.vm.network "private_network", ip: "192.168.240.13"
+
+    compute1_config.vm.provider "vmware_fusion" do |v|
+        v.vmx["memsize"] = "2048"
+        v.vmx["numvcpus"] = "2"
+    end
+
+    compute1_config.vm.provider "virtualbox" do |v|
+        v.customize ["modifyvm", :id, "--memory", "2048"]
+        v.customize ["modifyvm", :id, "--cpus", "2"]
+    end
+  end
+  # End compute1
+
+  # Begin chef
+  config.vm.define "chef" do |chef_config|
+    chef_config.vm.hostname = "chef"
+
+    chef_config.vm.provision "shell", inline: $chefscript
+
+    # eth1
+    chef_config.vm.network "private_network", ip: "192.168.236.10"
+
+    chef_config.vm.provider "vmware_fusion" do |v|
+        v.vmx["memsize"] = "1024"
+        v.vmx["numvcpus"] = "1"
+    end
+
+    chef_config.vm.provider "virtualbox" do |v|
+        v.customize ["modifyvm", :id, "--memory", "1024"]
+        v.customize ["modifyvm", :id, "--cpus", "1"]
+    end
+  end
+  # End chef
+end
