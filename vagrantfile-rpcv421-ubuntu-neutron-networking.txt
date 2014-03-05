@@ -84,8 +84,8 @@ cat << EOF >> /tmp/rpcv421.json
             "ovs": {
                 "provider_networks": [
                     {
-                        "label": "ph-eth2",
-                        "bridge": "br-eth2"
+                        "label": "ph-eth3",
+                        "bridge": "br-eth3"
                     }
                 ],
                 "network_type": "gre",
@@ -141,10 +141,11 @@ knife bootstrap compute1 --environment rpcv421 --run-list 'role[single-compute]'
 ssh controller1 bash -c "'
 ip link set eth3 down
 ip addr del 192.168.244.11/24 dev eth3
+'"
 
-# sed was being difficult going over ssh, but this way works
-echo "sed -i -e '/auto eth3/,+3d' /etc/network/interfaces" | ssh controller1 bash
+ssh controller1 "sed -i -e '/auto eth3/,+3d' /etc/network/interfaces"
 
+ssh controller1 bash -c "'
 cat << 'EOF' >> /etc/network/interfaces
 auto eth3
 iface eth3 inet manual
@@ -155,10 +156,10 @@ iface br-eth3 inet static
     address 192.168.244.11
     netmask 255.255.255.0
 EOF
+'"
+ssh controller1 "sed -i '/^exit 0$/i ifup br-eth3' /etc/rc.local"
 
-# sed was being difficult going over ssh, but this way works
-echo "sed -i '/^exit 0$/i ifup br-eth3' /etc/rc.local" | ssh controller1 bash
-
+ssh controller1 bash -c "'
 ip link set eth3 up
 ip link set br-eth3 up
 ip address add 192.168.244.11/24 dev br-eth3
@@ -170,10 +171,11 @@ ovs-vsctl add-port br-eth3 eth3
 ssh compute1 bash -c "'
 ip link set eth3 down
 ip addr del 192.168.244.12/24 dev eth3
+'"
 
-# sed was being difficult going over ssh, but this way works
-echo "sed -i -e '/auto eth3/,+3d' /etc/network/interfaces" | ssh controller1 bash
+ssh compute1 "sed -i -e '/auto eth3/,+3d' /etc/network/interfaces"
 
+ssh compute1 bash -c "'
 cat << 'EOF' >> /etc/network/interfaces
 auto eth3
 iface eth3 inet manual
@@ -184,10 +186,11 @@ iface br-eth3 inet static
     address 192.168.244.12
     netmask 255.255.255.0
 EOF
+'"
 
-# sed was being difficult going over ssh, but this way works
-echo "sed -i '/^exit 0$/i ifup br-eth3' /etc/rc.local" | ssh controller1 bash
+ssh compute1 "sed -i '/^exit 0$/i ifup br-eth3' /etc/rc.local"
 
+ssh compute1 bash -c "'
 ip link set eth3 up
 ip link set br-eth3 up
 ip address add 192.168.244.12/24 dev br-eth3
