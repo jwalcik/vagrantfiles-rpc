@@ -89,7 +89,8 @@ cat << EOF >> /tmp/rpcv421.json
                     }
                 ],
                 "network_type": "gre",
-                "network": "neutron"
+                "network": "neutron",
+                "external_bridge": ""
             }
         },
         "mysql": {
@@ -136,6 +137,73 @@ knife bootstrap controller1 --environment rpcv421 --run-list 'role[single-contro
 
 knife bootstrap compute1 --environment rpcv421 --run-list 'role[single-compute]' || while ! knife ssh "name:compute1" "chef-client"; do echo "chef-client failed, retrying"; sleep 5; done
 
+# Post-install controller configuration
+ssh controller1 bash -c "'
+ip link set eth3 down
+ip addr del 192.168.244.11/24 dev eth3
+
+# sed was being difficult going over ssh, but this way works
+echo "sed -i -e '/auto eth3/,+3d' /etc/network/interfaces" | ssh controller1 bash
+
+cat << 'EOF' >> /etc/network/interfaces
+auto eth3
+iface eth3 inet manual
+    up ip link set eth3 up
+    down ip link set eth3 down
+
+iface br-eth3 inet static
+    address 192.168.244.11
+    netmask 255.255.255.0
+EOF
+
+# sed was being difficult going over ssh, but this way works
+echo "sed -i '/^exit 0$/i ifup br-eth3' /etc/rc.local" | ssh controller1 bash
+
+ip link set eth3 up
+ip link set br-eth3 up
+ip address add 192.168.244.11/24 dev br-eth3
+
+ovs-vsctl add-port br-eth3 eth3
+'"
+
+# Post-install compute configuration
+ssh compute1 bash -c "'
+ip link set eth3 down
+ip addr del 192.168.244.12/24 dev eth3
+
+# sed was being difficult going over ssh, but this way works
+echo "sed -i -e '/auto eth3/,+3d' /etc/network/interfaces" | ssh controller1 bash
+
+cat << 'EOF' >> /etc/network/interfaces
+auto eth3
+iface eth3 inet manual
+    up ip link set eth3 up
+    down ip link set eth3 down
+
+iface br-eth3 inet static
+    address 192.168.244.12
+    netmask 255.255.255.0
+EOF
+
+# sed was being difficult going over ssh, but this way works
+echo "sed -i '/^exit 0$/i ifup br-eth3' /etc/rc.local" | ssh controller1 bash
+
+ip link set eth3 up
+ip link set br-eth3 up
+ip address add 192.168.244.12/24 dev br-eth3
+
+ovs-vsctl add-port br-eth3 eth3
+'"
+
+# Turn Chef Server into a router
+echo 'net.ipv4.ip_forward=1' >> /etc/sysctl.conf
+
+sysctl -p
+
+iptables -A FORWARD -i eth2 -j ACCEPT
+
+iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+
 echo "All done!"
 CHEFSCRIPT
 
@@ -156,6 +224,8 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
     controller1_config.vm.network "private_network", ip: "192.168.236.11"
     # eth2
     controller1_config.vm.network "private_network", ip: "192.168.240.11"
+    # eth3
+    controller1_config.vm.network "private_network", ip: "192.168.244.11"
 
     controller1_config.vm.provider "vmware_fusion" do |v|
         v.vmx["memsize"] = "2048"
@@ -165,6 +235,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
     controller1_config.vm.provider "virtualbox" do |v|
         v.customize ["modifyvm", :id, "--memory", "2048"]
         v.customize ["modifyvm", :id, "--cpus", "2"]
+        v.customize ["modifyvm", :id, "--nicpromisc4", "allow-all"]
     end
   end
   # End controller1
@@ -179,6 +250,8 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
     compute1_config.vm.network "private_network", ip: "192.168.236.12"
     # eth2
     compute1_config.vm.network "private_network", ip: "192.168.240.12"
+    # eth3
+    compute1_config.vm.network "private_network", ip: "192.168.244.12"
 
     compute1_config.vm.provider "vmware_fusion" do |v|
         v.vmx["memsize"] = "2048"
@@ -188,6 +261,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
     compute1_config.vm.provider "virtualbox" do |v|
         v.customize ["modifyvm", :id, "--memory", "2048"]
         v.customize ["modifyvm", :id, "--cpus", "2"]
+        v.customize ["modifyvm", :id, "--nicpromisc4", "allow-all"]
     end
   end
   # End compute1
@@ -200,6 +274,8 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
 
     # eth1
     chef_config.vm.network "private_network", ip: "192.168.236.10"
+    # eth2
+    chef_config.vm.network "private_network", ip: "192.168.244.10"
 
     chef_config.vm.provider "vmware_fusion" do |v|
         v.vmx["memsize"] = "1024"
