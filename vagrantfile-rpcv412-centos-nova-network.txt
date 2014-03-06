@@ -154,13 +154,13 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
     controller1_config.vm.network "private_network", ip: "192.168.236.11"
 
     controller1_config.vm.provider "vmware_fusion" do |v|
-        v.vmx["memsize"] = "2048"
-        v.vmx["numvcpus"] = "2"
+        v.vmx["memsize"] = "1536"
+        v.vmx["numvcpus"] = "1"
     end
 
     controller1_config.vm.provider "virtualbox" do |v|
-        v.customize ["modifyvm", :id, "--memory", "2048"]
-        v.customize ["modifyvm", :id, "--cpus", "2"]
+        v.customize ["modifyvm", :id, "--memory", "1536"]
+        v.customize ["modifyvm", :id, "--cpus", "1"]
     end
   end
   # End controller1
