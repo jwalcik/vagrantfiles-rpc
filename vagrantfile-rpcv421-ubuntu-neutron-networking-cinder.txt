@@ -1,0 +1,290 @@
+# -*- mode: ruby -*-
+
+# vi: set ft=ruby :
+
+VAGRANTFILE_API_VERSION = "2"
+
+$commonscript = <<COMMONSCRIPT
+# Set verbose
+set -v
+
+# Set exit on error
+set -e
+
+# Silly Ubuntu 12.04 doesn't have the
+# --stdin option in the passwd utility
+echo root:vagrant | chpasswd
+
+cat << EOF >> /etc/hosts
+192.168.236.10 chef
+192.168.236.11 controller1
+192.168.236.12 compute1
+192.168.236.13 cinder1
+EOF
+COMMONSCRIPT
+
+$cinderscript = <<CINDERSCRIPT
+# Set verbose
+set -v
+
+# Set exit on error
+set -e
+
+# Create a partition on the additional disk
+fdisk -u /dev/sdb <<EOF
+n
+p
+1
+
+
+w
+EOF
+
+# Put a file system on the partition
+mkfs.ext3 /dev/sdb1
+
+# Create the appropriate LVM volume group
+lvm pvcreate /dev/sdb1
+lvm vgcreate cinder-volumes /dev/sdb1
+CINDERSCRIPT
+
+$chefscript = <<CHEFSCRIPT
+# Set verbose
+set -v
+
+# Set exit on error
+set -e
+
+wget https://raw.github.com/rcbops/support-tools/master/chef-install/install-chef-server.sh -O /tmp/install-chef-server.sh
+
+chmod +x /tmp/install-chef-server.sh
+
+export CHEF_URL="https://chef:443"
+
+/tmp/install-chef-server.sh
+
+cd /root
+
+git clone https://github.com/rcbops/chef-cookbooks.git
+
+cd chef-cookbooks
+
+git checkout v4.2.1
+git submodule init
+git submodule sync
+git submodule update
+
+knife cookbook upload -a -o cookbooks
+
+knife role from file roles/*rb
+
+cat << EOF >> /tmp/rpcv421.json
+{
+    "name": "rpcv421",
+    "description": "Rackspace Private Cloud v4.2.1",
+    "cookbook_versions": {},
+    "json_class": "Chef::Environment",
+    "chef_type": "environment",
+    "default_attributes": {},
+    "override_attributes": {
+        "nova": {
+            "libvirt": {
+                "virt_type": "qemu",
+                "vncserver_listen": "0.0.0.0"
+            },
+            "network": {
+                "provider": "neutron"
+            }
+        },
+        "neutron": {
+            "ovs": {
+                "provider_networks": [
+                    {
+                        "label": "ph-eth2",
+                        "bridge": "br-eth2"
+                    }
+                ],
+                "network_type": "gre",
+                "network": "neutron"
+            }
+        },
+        "mysql": {
+            "allow_remote_root": true,
+            "root_network_acl": "%"
+        },
+        "osops_networks": {
+            "nova": "192.168.236.0/24",
+            "public": "192.168.236.0/24",
+            "management": "192.168.236.0/24",
+            "neutron": "192.168.240.0/24"
+        }
+    }
+}
+EOF
+
+knife environment from file /tmp/rpcv421.json
+
+ssh-keygen -t rsa -N "" -f /root/.ssh/id_rsa
+
+ssh-keyscan controller1 >> /root/.ssh/known_hosts
+ssh-keyscan 192.168.236.11 >> /root/.ssh/known_hosts
+
+ssh-keyscan compute1 >> /root/.ssh/known_hosts
+ssh-keyscan 192.168.236.12 >> /root/.ssh/known_hosts
+
+ssh-keyscan cinder1 >> /root/.ssh/known_hosts
+ssh-keyscan 192.168.236.13 >> /root/.ssh/known_hosts
+
+apt-get install -y expect
+
+expect<<EOF
+spawn ssh-copy-id controller1
+expect "root@controller1's password:"
+send "vagrant\n"
+expect eof
+EOF
+
+expect<<EOF
+spawn ssh-copy-id compute1
+expect "root@compute1's password:"
+send "vagrant\n"
+expect eof
+EOF
+
+expect<<EOF
+spawn ssh-copy-id cinder1
+expect "root@cinder1's password:"
+send "vagrant\n"
+expect eof
+EOF
+
+knife bootstrap controller1 --environment rpcv421 --run-list 'role[single-controller],role[single-network-node]' || while ! knife ssh "name:controller1" "chef-client"; do echo "chef-client failed, retrying"; sleep 5; done
+
+knife bootstrap compute1 --environment rpcv421 --run-list 'role[single-compute]' || while ! knife ssh "name:compute1" "chef-client"; do echo "chef-client failed, retrying"; sleep 5; done
+
+knife bootstrap cinder1 --environment rpcv421 --run-list 'role[cinder-volume]' || while ! knife ssh "name:cinder1" "chef-client"; do echo "chef-client failed, retrying"; sleep 5; done
+
+echo "All done!"
+CHEFSCRIPT
+
+Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
+
+  config.vm.box = "ubuntu-server-12.04.3-lts-x86_64"
+
+  # Turn off shared folders
+  config.vm.synced_folder ".", "/vagrant", id: "vagrant-root", disabled: true
+
+  # Begin controller1
+  config.vm.define "controller1" do |controller1_config|
+    controller1_config.vm.hostname = "controller1"
+
+    controller1_config.vm.provision "shell", inline: $commonscript
+
+    # eth1
+    controller1_config.vm.network "private_network", ip: "192.168.236.11"
+    # eth2
+    controller1_config.vm.network "private_network", ip: "192.168.240.11"
+
+    controller1_config.vm.provider "vmware_fusion" do |v|
+        v.vmx["memsize"] = "2048"
+        v.vmx["numvcpus"] = "2"
+    end
+
+    controller1_config.vm.provider "virtualbox" do |v|
+        v.customize ["modifyvm", :id, "--memory", "2048"]
+        v.customize ["modifyvm", :id, "--cpus", "2"]
+    end
+  end
+  # End controller1
+
+  # Begin compute1
+  config.vm.define "compute1" do |compute1_config|
+    compute1_config.vm.hostname = "compute1"
+
+    compute1_config.vm.provision "shell", inline: $commonscript
+
+    # eth1
+    compute1_config.vm.network "private_network", ip: "192.168.236.12"
+    # eth2
+    compute1_config.vm.network "private_network", ip: "192.168.240.12"
+
+    compute1_config.vm.provider "vmware_fusion" do |v|
+        v.vmx["memsize"] = "2048"
+        v.vmx["numvcpus"] = "2"
+    end
+
+    compute1_config.vm.provider "virtualbox" do |v|
+        v.customize ["modifyvm", :id, "--memory", "2048"]
+        v.customize ["modifyvm", :id, "--cpus", "2"]
+    end
+  end
+  # End compute1
+
+  # Begin cinder1
+  config.vm.define "cinder1" do |cinder1_config|
+    cinder1_config.vm.hostname = "cinder1"
+
+    cinder1_config.vm.provision "shell", inline: $commonscript
+    cinder1_config.vm.provision "shell", inline: $cinderscript
+
+    # eth1
+    cinder1_config.vm.network "private_network", ip: "192.168.236.13"
+    # eth2
+    cinder1_config.vm.network "private_network", ip: "192.168.240.13"
+
+    cinder1_config.vm.provider "vmware_fusion" do |v|
+        v.vmx["memsize"] = "2048"
+        v.vmx["numvcpus"] = "2"
+
+    	# add an additional disk for Cinder
+    	vdiskmanager = '/Applications/VMware\ Fusion.app/Contents/Library/vmware-vdiskmanager'
+
+    	dir = "#{ENV['HOME']}/vagrant-additional-disk"
+
+    	unless File.directory?( dir )
+       		Dir.mkdir dir
+    	end
+
+    	file_to_disk = "#{dir}/var-lib-mysql.vmdk"
+
+    	unless File.exists?( file_to_disk )
+        	`#{vdiskmanager} -c -s 40GB -a lsilogic -t 1 #{file_to_disk}`
+    	end
+
+        v.vmx['scsi0:1.filename'] = file_to_disk
+        v.vmx['scsi0:1.present']  = 'TRUE'
+        v.vmx['scsi0:1.redo']     = ''
+    end
+
+
+    cinder1_config.vm.provider "virtualbox" do |v|
+        v.customize ["modifyvm", :id, "--memory", "2048"]
+        v.customize ["modifyvm", :id, "--cpus", "2"]
+        v.customize ["createhd", "--filename", "cinder1-sdb.vmdk", "--size", 40 * 1024]
+	v.customize ["storageattach", :id, "--storagectl", "SATA", "--port", 1, "--device", 0, "--type", "hdd", "--medium", "cinder1-sdb.vmdk"]
+    end
+  end
+  # End cinder1
+
+  # Begin chef
+  config.vm.define "chef" do |chef_config|
+    chef_config.vm.hostname = "chef"
+
+    chef_config.vm.provision "shell", inline: $commonscript
+    chef_config.vm.provision "shell", inline: $chefscript
+
+    # eth1
+    chef_config.vm.network "private_network", ip: "192.168.236.10"
+
+    chef_config.vm.provider "vmware_fusion" do |v|
+        v.vmx["memsize"] = "1024"
+        v.vmx["numvcpus"] = "1"
+    end
+
+    chef_config.vm.provider "virtualbox" do |v|
+        v.customize ["modifyvm", :id, "--memory", "1024"]
+        v.customize ["modifyvm", :id, "--cpus", "1"]
+    end
+  end
+  # End chef
+end
