@@ -86,12 +86,13 @@ cat << EOF >> /tmp/rpcv421.json
             "ovs": {
                 "provider_networks": [
                     {
-                        "label": "ph-eth2",
-                        "bridge": "br-eth2"
+                        "label": "ph-eth3",
+                        "bridge": "br-eth3"
                     }
                 ],
                 "network_type": "gre",
-                "network": "neutron"
+                "network": "neutron",
+                "external_bridge": ""
             }
         },
         "mysql": {
@@ -189,6 +190,117 @@ knife ssh "name:controller1" "chef-client"
 
 knife bootstrap compute1 --environment rpcv421 --run-list 'role[single-compute]' || while ! knife ssh "name:compute1" "chef-client"; do echo "chef-client failed, retrying"; sleep 5; done
 
+# Post-install controller1 configuration
+ssh controller1 bash -c "'
+ip link set eth3 down
+ip addr del 192.168.244.11/24 dev eth3
+
+cat << 'EOF' > /etc/sysconfig/network-scripts/ifcfg-br-eth3
+DEVICE=br-eth3
+ONBOOT=yes
+BOOTPROTO=none
+STP=off
+NM_CONTROLLED=no
+HOTPLUG=no
+DEVICETYPE=ovs
+TYPE=OVSBridge
+IPADDR=192.168.244.11
+NETMASK=255.255.255.0
+EOF
+
+cat << 'EOF' > /etc/sysconfig/network-scripts/ifcfg-eth3
+DEVICE=eth3
+BOOTPROTO=none
+NM_CONTROLLED=no
+ONBOOT=yes
+TYPE=OVSPort
+DEVICETYPE="ovs"
+OVS_BRIDGE=br-eth3
+IPV6INIT=no
+USERCTL=no
+EOF
+
+ip link set eth3 up
+ip link set br-eth3 up
+'"
+
+# Post-install controller2 configuration
+ssh controller2 bash -c "'
+ip link set eth3 down
+ip addr del 192.168.244.12/24 dev eth3
+
+cat << 'EOF' > /etc/sysconfig/network-scripts/ifcfg-br-eth3
+DEVICE=br-eth3
+ONBOOT=yes
+BOOTPROTO=none
+STP=off
+NM_CONTROLLED=no
+HOTPLUG=no
+DEVICETYPE=ovs
+TYPE=OVSBridge
+IPADDR=192.168.244.12
+NETMASK=255.255.255.0
+EOF
+
+cat << 'EOF' > /etc/sysconfig/network-scripts/ifcfg-eth3
+DEVICE=eth3
+BOOTPROTO=none
+NM_CONTROLLED=no
+ONBOOT=yes
+TYPE=OVSPort
+DEVICETYPE="ovs"
+OVS_BRIDGE=br-eth3
+IPV6INIT=no
+USERCTL=no
+EOF
+
+ip link set eth3 up
+ip link set br-eth3 up
+'"
+
+# Post-install compute1 configuration
+ssh compute1 bash -c "'
+ip link set eth3 down
+ip addr del 192.168.244.13/24 dev eth3
+
+cat << 'EOF' > /etc/sysconfig/network-scripts/ifcfg-br-eth3
+DEVICE=br-eth3
+ONBOOT=yes
+BOOTPROTO=none
+STP=off
+NM_CONTROLLED=no
+HOTPLUG=no
+DEVICETYPE=ovs
+TYPE=OVSBridge
+IPADDR=192.168.244.13
+NETMASK=255.255.255.0
+EOF
+
+cat << 'EOF' > /etc/sysconfig/network-scripts/ifcfg-eth3
+DEVICE=eth3
+BOOTPROTO=none
+NM_CONTROLLED=no
+ONBOOT=yes
+TYPE=OVSPort
+DEVICETYPE="ovs"
+OVS_BRIDGE=br-eth3
+IPV6INIT=no
+USERCTL=no
+EOF
+
+ip link set eth3 up
+ip link set br-eth3 up
+'"
+
+# Turn Chef Server into a router
+echo 'net.ipv4.ip_forward=1' >> /etc/sysctl.conf
+
+sysctl -p
+
+iptables -A FORWARD -i eth2 -j ACCEPT
+
+iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+
 echo "All done!"
 CHEFSCRIPT
 
@@ -209,6 +321,8 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
     controller1_config.vm.network "private_network", ip: "192.168.236.11"
     # eth2
     controller1_config.vm.network "private_network", ip: "192.168.240.11"
+    # eth3
+    controller1_config.vm.network "private_network", ip: "192.168.244.11"
 
     controller1_config.vm.provider "vmware_fusion" do |v|
         v.vmx["memsize"] = "1536"
@@ -218,6 +332,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
     controller1_config.vm.provider "virtualbox" do |v|
         v.customize ["modifyvm", :id, "--memory", "1536"]
         v.customize ["modifyvm", :id, "--cpus", "1"]
+        v.customize ["modifyvm", :id, "--nicpromisc4", "allow-all"]
     end
   end
   # End controller1
@@ -232,6 +347,8 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
     controller2_config.vm.network "private_network", ip: "192.168.236.12"
     # eth2
     controller2_config.vm.network "private_network", ip: "192.168.240.12"
+    # eth3
+    controller2_config.vm.network "private_network", ip: "192.168.244.12"
 
     controller2_config.vm.provider "vmware_fusion" do |v|
         v.vmx["memsize"] = "1536"
@@ -241,6 +358,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
     controller2_config.vm.provider "virtualbox" do |v|
         v.customize ["modifyvm", :id, "--memory", "1536"]
         v.customize ["modifyvm", :id, "--cpus", "1"]
+        v.customize ["modifyvm", :id, "--nicpromisc4", "allow-all"]
     end
   end
   # End controller2
@@ -255,6 +373,8 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
     compute1_config.vm.network "private_network", ip: "192.168.236.13"
     # eth2
     compute1_config.vm.network "private_network", ip: "192.168.240.13"
+    # eth3
+    compute1_config.vm.network "private_network", ip: "192.168.244.13"
 
     compute1_config.vm.provider "vmware_fusion" do |v|
         v.vmx["memsize"] = "2048"
@@ -264,6 +384,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
     compute1_config.vm.provider "virtualbox" do |v|
         v.customize ["modifyvm", :id, "--memory", "2048"]
         v.customize ["modifyvm", :id, "--cpus", "2"]
+        v.customize ["modifyvm", :id, "--nicpromisc4", "allow-all"]
     end
   end
   # End compute1
@@ -276,6 +397,8 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
 
     # eth1
     chef_config.vm.network "private_network", ip: "192.168.236.10"
+    # eth2
+    chef_config.vm.network "private_network", ip: "192.168.244.10"
 
     chef_config.vm.provider "vmware_fusion" do |v|
         v.vmx["memsize"] = "1024"

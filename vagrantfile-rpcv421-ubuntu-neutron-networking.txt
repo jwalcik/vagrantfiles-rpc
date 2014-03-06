@@ -137,7 +137,7 @@ knife bootstrap controller1 --environment rpcv421 --run-list 'role[single-contro
 
 knife bootstrap compute1 --environment rpcv421 --run-list 'role[single-compute]' || while ! knife ssh "name:compute1" "chef-client"; do echo "chef-client failed, retrying"; sleep 5; done
 
-# Post-install controller configuration
+# Post-install controller1 configuration
 ssh controller1 bash -c "'
 ip link set eth3 down
 ip addr del 192.168.244.11/24 dev eth3
@@ -167,7 +167,7 @@ ip address add 192.168.244.11/24 dev br-eth3
 ovs-vsctl add-port br-eth3 eth3
 '"
 
-# Post-install compute configuration
+# Post-install compute1 configuration
 ssh compute1 bash -c "'
 ip link set eth3 down
 ip addr del 192.168.244.12/24 dev eth3

@@ -53,7 +53,7 @@ git clone https://github.com/rcbops/chef-cookbooks.git
 
 cd chef-cookbooks
 
-git checkout v4.1.4
+git checkout v4.1.3
 git submodule init
 git submodule sync
 git submodule update
@@ -62,10 +62,10 @@ knife cookbook upload -a -o cookbooks
 
 knife role from file roles/*rb
 
-cat << EOF >> /tmp/rpcv414.json
+cat << EOF >> /tmp/rpcv413.json
 {
-    "name": "rpcv414",
-    "description": "Rackspace Private Cloud v4.1.4",
+    "name": "rpcv413",
+    "description": "Rackspace Private Cloud v4.1.3",
     "cookbook_versions": {},
     "json_class": "Chef::Environment",
     "chef_type": "environment",
@@ -84,12 +84,13 @@ cat << EOF >> /tmp/rpcv414.json
             "ovs": {
                 "provider_networks": [
                     {
-                        "label": "ph-eth2",
-                        "bridge": "br-eth2"
+                        "label": "ph-eth3",
+                        "bridge": "br-eth3"
                     }
                 ],
                 "network_type": "gre",
-                "network": "quantum"
+                "network": "quantum",
+                "external_bridge": ""
             }
         },
         "mysql": {
@@ -106,7 +107,7 @@ cat << EOF >> /tmp/rpcv414.json
 }
 EOF
 
-knife environment from file /tmp/rpcv414.json
+knife environment from file /tmp/rpcv413.json
 
 ssh-keygen -t rsa -N "" -f /root/.ssh/id_rsa
 
@@ -132,9 +133,79 @@ send "vagrant\n"
 expect eof
 EOF
 
-knife bootstrap controller1 --environment rpcv414 --run-list 'role[single-controller],role[single-network-node]' || while ! knife ssh "name:controller1" "chef-client"; do echo "chef-client failed, retrying"; sleep 5; done
+knife bootstrap controller1 --environment rpcv413 --run-list 'role[single-controller],role[single-network-node]' || while ! knife ssh "name:controller1" "chef-client"; do echo "chef-client failed, retrying"; sleep 5; done
 
-knife bootstrap compute1 --environment rpcv414 --run-list 'role[single-compute]' || while ! knife ssh "name:compute1" "chef-client"; do echo "chef-client failed, retrying"; sleep 5; done
+knife bootstrap compute1 --environment rpcv413 --run-list 'role[single-compute]' || while ! knife ssh "name:compute1" "chef-client"; do echo "chef-client failed, retrying"; sleep 5; done
+
+# Post-install controller configuration
+ssh controller1 bash -c "'
+ip link set eth3 down
+ip addr del 192.168.244.11/24 dev eth3
+'"
+
+ssh controller1 "sed -i -e '/auto eth3/,+3d' /etc/network/interfaces"
+
+ssh controller1 bash -c "'
+cat << 'EOF' >> /etc/network/interfaces
+auto eth3
+iface eth3 inet manual
+    up ip link set eth3 up
+    down ip link set eth3 down
+
+iface br-eth3 inet static
+    address 192.168.244.11
+    netmask 255.255.255.0
+EOF
+'"
+ssh controller1 "sed -i '/^exit 0$/i ifup br-eth3' /etc/rc.local"
+
+ssh controller1 bash -c "'
+ip link set eth3 up
+ip link set br-eth3 up
+ip address add 192.168.244.11/24 dev br-eth3
+
+ovs-vsctl add-port br-eth3 eth3
+'"
+
+# Post-install compute configuration
+ssh compute1 bash -c "'
+ip link set eth3 down
+ip addr del 192.168.244.12/24 dev eth3
+'"
+
+ssh compute1 "sed -i -e '/auto eth3/,+3d' /etc/network/interfaces"
+
+ssh compute1 bash -c "'
+cat << 'EOF' >> /etc/network/interfaces
+auto eth3
+iface eth3 inet manual
+    up ip link set eth3 up
+    down ip link set eth3 down
+
+iface br-eth3 inet static
+    address 192.168.244.12
+    netmask 255.255.255.0
+EOF
+'"
+
+ssh compute1 "sed -i '/^exit 0$/i ifup br-eth3' /etc/rc.local"
+
+ssh compute1 bash -c "'
+ip link set eth3 up
+ip link set br-eth3 up
+ip address add 192.168.244.12/24 dev br-eth3
+
+ovs-vsctl add-port br-eth3 eth3
+'"
+
+# Turn Chef Server into a router
+echo 'net.ipv4.ip_forward=1' >> /etc/sysctl.conf
+
+sysctl -p
+
+iptables -A FORWARD -i eth2 -j ACCEPT
+
+iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
 
 echo "All done!"
 CHEFSCRIPT
@@ -156,6 +227,8 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
     controller1_config.vm.network "private_network", ip: "192.168.236.11"
     # eth2
     controller1_config.vm.network "private_network", ip: "192.168.240.11"
+    # eth3
+    controller1_config.vm.network "private_network", ip: "192.168.244.11"
 
     controller1_config.vm.provider "vmware_fusion" do |v|
         v.vmx["memsize"] = "2048"
@@ -165,6 +238,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
     controller1_config.vm.provider "virtualbox" do |v|
         v.customize ["modifyvm", :id, "--memory", "2048"]
         v.customize ["modifyvm", :id, "--cpus", "2"]
+        v.customize ["modifyvm", :id, "--nicpromisc4", "allow-all"]
     end
   end
   # End controller1
@@ -179,6 +253,8 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
     compute1_config.vm.network "private_network", ip: "192.168.236.12"
     # eth2
     compute1_config.vm.network "private_network", ip: "192.168.240.12"
+    # eth3
+    compute1_config.vm.network "private_network", ip: "192.168.244.12"
 
     compute1_config.vm.provider "vmware_fusion" do |v|
         v.vmx["memsize"] = "2048"
@@ -188,6 +264,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
     compute1_config.vm.provider "virtualbox" do |v|
         v.customize ["modifyvm", :id, "--memory", "2048"]
         v.customize ["modifyvm", :id, "--cpus", "2"]
+        v.customize ["modifyvm", :id, "--nicpromisc4", "allow-all"]
     end
   end
   # End compute1
@@ -200,6 +277,8 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
 
     # eth1
     chef_config.vm.network "private_network", ip: "192.168.236.10"
+    # eth2
+    chef_config.vm.network "private_network", ip: "192.168.244.10"
 
     chef_config.vm.provider "vmware_fusion" do |v|
         v.vmx["memsize"] = "1024"
