@@ -39,7 +39,8 @@ cat << EOF >> /etc/hosts
 192.168.236.12 compute1
 EOF
 
-wget https://raw.github.com/rcbops/support-tools/master/chef-install/install-chef-server.sh -O /tmp/install-chef-server.sh
+# wget complains even though SSL certificate is a wild card
+wget --no-check-certificate https://raw.github.com/rcbops/support-tools/master/chef-install/install-chef-server.sh -O /tmp/install-chef-server.sh
 
 chmod +x /tmp/install-chef-server.sh
 
@@ -169,6 +170,9 @@ EOF
 
 ip link set eth3 up
 ip link set br-eth3 up
+ip address add 192.168.244.11/24 dev br-eth3
+
+ovs-vsctl add-port br-eth3 eth3
 '"
 
 # Post-install compute1 configuration
@@ -203,12 +207,15 @@ EOF
 
 ip link set eth3 up
 ip link set br-eth3 up
+ip address add 192.168.244.12/24 dev br-eth3
+
+ovs-vsctl add-port br-eth3 eth3
 '"
 
 # Turn Chef Server into a router
 echo 'net.ipv4.ip_forward=1' >> /etc/sysctl.conf
 
-sysctl -p
+sysctl -w net.ipv4.ip_forward=1
 
 iptables -A FORWARD -i eth2 -j ACCEPT
 
